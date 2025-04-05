@@ -47,8 +47,13 @@ async def start(message: types.Message):
                 f'\n\n🔍 Наш сервис работает быстро и понятно — без сложных расчетов, графиков и бюрократии. Поможем сократить принятие решений с нескольких дней до пары минут.'
     )
     print('user started bot', message.from_user.id)
-    await message.answer_photo(HELLO_PIC_FILE_ID, caption=greeting, reply_markup=manual_input_keyboard())
+    sent_message = await message.answer_photo(HELLO_PIC_FILE_ID, caption=greeting, reply_markup=manual_input_keyboard())
     print('photo send')
+    try:
+        await bot.pin_chat_message(chat_id=message.chat.id, message_id=sent_message.message_id)
+    except Exception as e:
+        print(f"Не удалось закрепить сообщение: {e}")
+
 
 @dp.message(lambda msg: msg.document is not None)
 async def handle_excel(message: types.Message):
