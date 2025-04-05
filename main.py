@@ -29,30 +29,40 @@ def manual_input_keyboard():
 
 def voltage_selection_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Высокое", callback_data="voltage_high")],
-        [InlineKeyboardButton(text="Средне", callback_data="voltage_medium")],
-        [InlineKeyboardButton(text="Среднее 2", callback_data="voltage_medium2")],
-        [InlineKeyboardButton(text="Низкое", callback_data="voltage_low")],
+        [InlineKeyboardButton(text="ВН", callback_data="voltage_high")],
+        [InlineKeyboardButton(text="СН 1", callback_data="voltage_medium")],
+        [InlineKeyboardButton(text="СН 11", callback_data="voltage_medium2")],
+        [InlineKeyboardButton(text="НН", callback_data="voltage_low")],
     ])
 
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    await add_user(message.from_user.id, message.from_user.username or "unknown")
-    greeting = (f' Мы разработали сервис, который помогает юридическим лицам быстро и точно подобрать оптимальный тариф на электроэнергию, основываясь на данных потребления.'
-                f' \n\n📂 Отправь Excel-файл с показаниями счетчиков (формат .xlsx), и мы:'
-                f'\n— автоматически проанализируем потребление по часам,'
-                f'\n— определим пиковые нагрузки,'
-                f'\n— и предложим наиболее выгодную тарифную категорию.'
-                f'\n\n📲 Или выбери ручной ввод, если таблиц под рукой пока нет.'
-                f'\n\n🔍 Наш сервис работает быстро и понятно — без сложных расчетов, графиков и бюрократии. Поможем сократить принятие решений с нескольких дней до пары минут.'
+
+    is_new_user = await add_user(message.from_user.id, message.from_user.username or "unknown")
+    print(is_new_user)
+    greeting = (
+        "Мы разработали сервис, который помогает юридическим лицам быстро и точно подобрать оптимальный тариф на электроэнергию, основываясь на данных потребления."
+        "\n\n📂 Отправь Excel-файл с показаниями счетчиков (формат .xlsx), и мы:"
+        "\n— автоматически проанализируем потребление по часам,"
+        "\n— определим пиковые нагрузки,"
+        "\n— и предложим наиболее выгодную тарифную категорию."
+        "\n\n📲 Или выбери ручной ввод, если таблиц под рукой пока нет."
+        "\n\n🔍 Наш сервис работает быстро и понятно — без сложных расчетов, графиков и бюрократии. Поможем сократить принятие решений с нескольких дней до пары минут."
     )
     print('user started bot', message.from_user.id)
-    sent_message = await message.answer_photo(HELLO_PIC_FILE_ID, caption=greeting, reply_markup=manual_input_keyboard())
+    sent_message = await message.answer_photo(
+        HELLO_PIC_FILE_ID,
+        caption=greeting,
+        reply_markup=manual_input_keyboard()
+    )
     print('photo send')
-    try:
-        await bot.pin_chat_message(chat_id=message.chat.id, message_id=sent_message.message_id)
-    except Exception as e:
-        print(f"Не удалось закрепить сообщение: {e}")
+    if is_new_user:
+        try:
+            await bot.pin_chat_message(chat_id=message.chat.id, message_id=sent_message.message_id)
+            print('pinned message')
+        except Exception as e:
+            print(f"Не удалось закрепить сообщение: {e}")
+
 
 
 @dp.message(lambda msg: msg.document is not None)
@@ -106,7 +116,7 @@ async def process_kwh(message: types.Message, state: FSMContext):
     try:
         kwh = float(message.text)
         await state.update_data(kwh=kwh)
-        await message.answer("Какая максимальная потребляемая мощность? (в мВт·ч):")
+        await message.answer("Какая максимальная потребляемая мощность? (в кВт·ч):")
         await state.set_state(ManualInputStates.waiting_for_max_power)
     except ValueError:
         await message.answer("Пожалуйста, введите корректное число (например, 150.5)")
