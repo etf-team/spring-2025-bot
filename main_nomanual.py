@@ -2,6 +2,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import InputMediaDocument
 import aiohttp
 import asyncio
 
@@ -14,7 +15,7 @@ dp = Dispatcher(storage=storage)
 
 def manual_input_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Нет файла?", callback_data="manual_input")]
+        [InlineKeyboardButton(text="У меня нет файла", callback_data="manual_input")]
     ])
 
 def confirm_test_file_keyboard():
@@ -31,6 +32,7 @@ async def start(message: types.Message):
         "\n— автоматически проанализируем потребление по часам,"
         "\n— определим пиковые нагрузки,"
         "\n— и предложим наиболее выгодную тарифную категорию."
+        "\n\n📲 Если у вас нет файла, мы подготовили тестовый файл, который можно использовать в качестве примера. Просто нажмите кнопку ниже, и проверьте наш сервис!"
         "\n\n🔍 Наш сервис работает быстро и понятно — без сложных расчетов, графиков и бюрократии. Поможем сократить принятие решений с нескольких дней до пары минут."
     )
     sent_message = await message.answer_photo(
@@ -43,46 +45,6 @@ async def start(message: types.Message):
             await bot.pin_chat_message(chat_id=message.chat.id, message_id=sent_message.message_id)
         except Exception as e:
             print(f"Не удалось закрепить сообщение: {e}")
-
-@dp.callback_query(F.data == "manual_input")
-async def manual_input_prompt(callback: CallbackQuery):
-    a = ("Хочешь протестировать наш сервис на примере тестового Excel-файла?")
-    await callback.message.answer_photo(HA_PIC_FILE_ID, caption=a, reply_markup=confirm_test_file_keyboard())
-
-    await callback.answer()
-
-@dp.callback_query(F.data == "send_test_file")
-async def send_test_file(callback: CallbackQuery):
-    await bot.send_chat_action(chat_id=callback.message.chat.id, action="typing")
-    processing_msg = await callback.message.answer("Отправляю тестовый файл и жду ответа сервера...")
-
-    url = "https://etf-team.ru/api/volumes-info?return_resolved=true"
-
-    try:
-        with open(TEST_FILE_PATH, "rb") as f:
-            file_data = f.read()
-
-        async with aiohttp.ClientSession() as session:
-            form = aiohttp.FormData()
-            form.add_field(
-                name='payload',
-                value=file_data,
-                filename="test_file.xlsx",
-                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            )
-
-            async with session.post(url, data=form) as response:
-                if response.status == 200:
-                    result = await response.text()
-                    await callback.message.answer(f"Ответ сервера на тестовый файл:\n{result}")
-                else:
-                    bad = (f"Что-то пошло не так! :( \nКод ошибки: {response.status}")
-                    await callback.message.answer_photo(SAD_PIC_FILE_ID, caption=bad)
-    except Exception as e:
-        await callback.message.answer_photo(SAD_PIC_FILE_ID, caption=f"Ошибка при отправке файла: {e}")
-    finally:
-        await processing_msg.delete()
-        await callback.answer()
 
 @dp.message(lambda msg: msg.document is not None)
 async def handle_excel(message: types.Message):
@@ -123,6 +85,63 @@ async def handle_excel(message: types.Message):
             await message.answer_photo(SAD_PIC_FILE_ID, caption=bad)
         finally:
             await processing_msg.delete()
+
+@dp.callback_query(F.data == "manual_input")
+async def manual_input_prompt(callback: CallbackQuery):
+    a = ("Хочешь протестировать наш сервис на примере тестового Excel-файла?")
+    await callback.message.answer_photo(HA_PIC_FILE_ID, caption=a, reply_markup=confirm_test_file_keyboard())
+
+    await callback.answer()
+
+@dp.callback_query(F.data == "send_test_file")
+async def send_test_file(callback: CallbackQuery):
+    try:
+        await callback.message.edit_media(
+            media=InputMediaDocument(
+                media=types.FSInputFile(TEST_FILE_PATH),
+                caption="Вот пример тестового файла, который я сейчас отправлю на сервер"
+            )
+        )
+    except Exception as e:
+        await callback.message.answer_photo(SAD_PIC_FILE_ID, caption=f"Ошибка при отправке файла пользователю: {e}")
+        await callback.answer()
+        return
+
+    # Шаг 2: Подождать 1 секунду
+    await asyncio.sleep(1)
+
+    # Шаг 3: Отправляем сообщение о том, что начинается отправка на сервер
+    await bot.send_chat_action(chat_id=callback.message.chat.id, action="typing")
+    processing_msg = await callback.message.answer("Отправляю тестовый файл и жду ответа сервера...")
+
+    url = "https://etf-team.ru/api/volumes-info?return_resolved=true"
+
+    try:
+        with open(TEST_FILE_PATH, "rb") as f:
+            file_data = f.read()
+
+        async with aiohttp.ClientSession() as session:
+            form = aiohttp.FormData()
+            form.add_field(
+                name='payload',
+                value=file_data,
+                filename="test_file.xlsx",
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+
+            async with session.post(url, data=form) as response:
+                if response.status == 200:
+                    result = await response.text()
+                    await callback.message.answer(f"Ответ сервера на тестовый файл:\n{result}")
+                else:
+                    bad = (f"Что-то пошло не так! :( \nКод ошибки: {response.status}")
+                    await callback.message.answer_photo(SAD_PIC_FILE_ID, caption=bad)
+    except Exception as e:
+        await callback.message.answer_photo(SAD_PIC_FILE_ID, caption=f"Ошибка при отправке файла: {e}")
+    finally:
+        await processing_msg.delete()
+        await callback.answer()
+
 
 
 async def main():
