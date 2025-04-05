@@ -8,6 +8,8 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQu
 import aiohttp
 from aiogram.types import FSInputFile
 
+
+from db import init_db, add_user
 from keys import API_TOKEN
 
 bot = Bot(token=API_TOKEN)
@@ -37,6 +39,7 @@ def voltage_selection_keyboard():
 
 @dp.message(Command("start"))
 async def start(message: types.Message):
+    await add_user(message.from_user.id, message.from_user.username or "unknown")
     greeting = (f' Мы разработали сервис, который помогает юридическим лицам быстро и точно подобрать оптимальный тариф на электроэнергию, основываясь на данных потребления.'
                 f' \n\n📂 Отправь Excel-файл с показаниями счетчиков (формат .xlsx), и мы:'
                 f'\n— автоматически проанализируем потребление по часам,'
@@ -142,7 +145,10 @@ async def voltage_selected(callback: CallbackQuery, state: FSMContext):
                     result = await response.text()
                     await callback.message.edit_text(f"Ответ:\n{result}")
                 else:
-                    await callback.message.edit_text(f"Что-то пошло не так! :( \nНаш администратор уже уведомлен об ошибке и мы ее обязательно изучим! \nПопробуйте ввести данные ещё раз. \nКод ошибки: {response.status}")
+                    bad = f"Что-то пошло не так! :( \nНаш администратор уже уведомлен об ошибке и мы ее обязательно изучим! \nПопробуйте ввести данные ещё раз. \nКод ошибки: {response.status}"
+                    photo = FSInputFile("./static/sad.png")
+                    await callback.message.answer_photo(photo, caption=bad)
+
         except Exception as e:
             await callback.message.edit_text(f"Ошибка при отправке: {e}")
         finally:
@@ -152,7 +158,9 @@ async def voltage_selected(callback: CallbackQuery, state: FSMContext):
 
 
 async def main():
+    await init_db()
     await dp.start_polling(bot)
+
 
 if __name__ == '__main__':
     asyncio.run(main())
