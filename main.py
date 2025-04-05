@@ -6,11 +6,9 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 import aiohttp
-from aiogram.types import FSInputFile
-
 
 from db import init_db, add_user
-from keys import API_TOKEN
+from keys import API_TOKEN, SAD_PIC_FILE_ID, HELLO_PIC_FILE_ID
 
 bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
@@ -21,7 +19,6 @@ class ManualInputStates(StatesGroup):
     waiting_for_voltage = State()
     waiting_for_mwh = State()
     waiting_for_max_power = State()
-
 
 print("Bot started")
 
@@ -38,8 +35,6 @@ def voltage_selection_keyboard():
         [InlineKeyboardButton(text="Низкое", callback_data="voltage_low")],
     ])
 
-
-
 @dp.message(Command("start"))
 async def start(message: types.Message):
     await add_user(message.from_user.id, message.from_user.username or "unknown")
@@ -52,11 +47,8 @@ async def start(message: types.Message):
                 f'\n\n🔍 Наш сервис работает быстро и понятно — без сложных расчетов, графиков и бюрократии. Поможем сократить принятие решений с нескольких дней до пары минут.'
     )
     print('user started bot', message.from_user.id)
-    photo = FSInputFile("./static/hello_pic.png")
-    await message.answer_photo(photo, caption=greeting, reply_markup=manual_input_keyboard())
+    await message.answer_photo(HELLO_PIC_FILE_ID, caption=greeting, reply_markup=manual_input_keyboard())
     print('photo send')
-
-
 
 @dp.message(lambda msg: msg.document is not None)
 async def handle_excel(message: types.Message):
@@ -89,23 +81,21 @@ async def handle_excel(message: types.Message):
                     result = await response.text()
                     await message.answer(f"Ответ:\n{result}")
                 else:
-                    bad = f"Что-то пошло не так! :( \nНаш администратор уже уведомлен об ошибке и мы ее обязательно изучим! \nПопробуйте ввести данные ещё раз. \nКод ошибки: {response.status}"
-                    photo = FSInputFile("./static/sad.png")
-                    await message.answer_photo(photo, caption=bad)
+                    bad = (f"Что-то пошло не так! :( \nНаш администратор уже уведомлен об ошибке и мы ее обязательно изучим! "
+                           f"\nПопробуйте ввести данные ещё раз. \nКод ошибки: {response.status}")
+                    await message.answer_photo(SAD_PIC_FILE_ID, caption=bad)
         except Exception as e:
             bad = f"Ошибка при отправке файла: {e}"
-            photo = FSInputFile("./static/sad.png")
-            await message.answer_photo(photo, caption=bad)
-
+            await message.answer_photo(SAD_PIC_FILE_ID, caption=bad)
         finally:
             await processing_msg.delete()
-
 
 @dp.callback_query(F.data == "manual_input")
 async def manual_input(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("Введите количество потреблённой электроэнергии (в кВт·ч):")
     await state.set_state(ManualInputStates.waiting_for_kwh)
     await callback.answer()
+
 @dp.message(ManualInputStates.waiting_for_kwh)
 async def process_kwh(message: types.Message, state: FSMContext):
     try:
@@ -121,16 +111,15 @@ async def process_max_power(message: types.Message, state: FSMContext):
     try:
         kwh_max = float(message.text)
         await state.update_data(kwh_max=kwh_max)
-        await message.answer("Выберите ваше напряжение:", reply_markup=voltage_selection_keyboard())
+        voltage_msg = await message.answer("Выберите ваше напряжение:", reply_markup=voltage_selection_keyboard())
+        await state.update_data(voltage_msg_id=voltage_msg.message_id)
         await state.set_state(ManualInputStates.waiting_for_voltage)
     except ValueError:
         await message.answer("Пожалуйста, введите корректное число (например, 150.5)")
 
-
-
-
 @dp.callback_query(ManualInputStates.waiting_for_voltage)
 async def voltage_selected(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("Обработка данных...")
     voltage_map = {
         "voltage_high": 1,
         "voltage_medium": 2,
@@ -166,23 +155,18 @@ async def voltage_selected(callback: CallbackQuery, state: FSMContext):
                     result = await response.text()
                     await callback.message.edit_text(f"Ответ:\n{result}")
                 else:
-                    bad = f"Что-то пошло не так! :( \nНаш администратор уже уведомлен об ошибке и мы ее обязательно изучим! \nПопробуйте ввести данные ещё раз. \nКод ошибки: {response.status}"
-                    photo = FSInputFile("./static/sad.png")
-                    await callback.message.answer_photo(photo, caption=bad)
-
+                    bad = (f"Что-то пошло не так! :( \nНаш администратор уже уведомлен об ошибке и мы ее обязательно изучим! "
+                           f"\nПопробуйте ввести данные ещё раз. \nКод ошибки: {response.status}")
+                    await callback.message.answer_photo(SAD_PIC_FILE_ID, caption=bad)
         except Exception as e:
             await callback.message.edit_text(f"Ошибка при отправке: {e}")
         finally:
             await state.clear()
             await callback.answer()
 
-
-
-
 async def main():
     await init_db()
     await dp.start_polling(bot)
-
 
 if __name__ == '__main__':
     asyncio.run(main())
