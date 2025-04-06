@@ -168,24 +168,26 @@ async def process_max_voltage(message: types.Message, state: FSMContext):
                         6: "ЦК 6 — В разработке"
                     }
 
+                    note_needed = False
+                    recommendation_kw = 0
+
                     for cat in categories:
                         cat_type = cat.get("category_type", "").upper()
                         total_cost = float(cat.get("total_cost", 0)) / 1000
                         applicable = cat["applicability"]["is_applicable_power_capacity"]
                         recommendation = int(cat["applicability"]["power_capacity_change_recommendation"])
 
-                        note = "" if applicable else " *"
-                        line = f"ЦК { {'FIRST': 1, 'SECOND': 2, 'THIRD': 3, 'FORTH': 4}.get(cat_type, '?')} — {total_cost:.0f} т.р. / мес{note}"
-                        if cat_type == "FIRST" and not applicable:
-                            line += (
-                                "\n\n* Чтобы воспользоваться ЦК1, "
-                                f"уменьшите максимальную мощность на {recommendation}кВт, "
-                                "обратившись в сетевую организацию."
-                            )
+                        note_marker = " *" if not applicable else ""
 
                         num = {"FIRST": 1, "SECOND": 2, "THIRD": 3, "FORTH": 4}.get(cat_type)
                         if num:
-                            result_map[num] = line
+                            result_map[num] = f"ЦК {num} — {total_cost:.0f} т.р. / мес{note_marker}"
+
+
+                        if cat_type == "FIRST" and not applicable:
+                            note_needed = True
+                            recommendation_kw = recommendation
+
 
                     final = (
                         "🔎 <b>Основываясь на вашем месячном потреблении, мы вычислили будущие расходы по нескольким ценовым категориям:</b>\n\n"
@@ -197,7 +199,19 @@ async def process_max_voltage(message: types.Message, state: FSMContext):
                         f"{result_map[6]}"
                     )
 
-                    await message.answer_photo(HAHA_PIC_FILE_ID, caption=final, parse_mode="HTML")
+
+                    if note_needed:
+                        final += (
+                            "\n\n<em>* Чтобы воспользоваться ЦК1, уменьшите величину максимальной мощности "
+                            f"на {recommendation_kw}кВт, обратившись в сетевую организацию.</em>"
+                        )
+
+                    await message.answer_photo(
+                        HAHA_PIC_FILE_ID,
+                        caption=final,
+                        parse_mode="HTML"
+                    )
+
                 except Exception as e:
                     bad = (
                         f"Что-то пошло не так! :( \n\nНаш администратор уже уведомлен об ошибке и мы ее обязательно изучим! "
