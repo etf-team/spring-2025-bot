@@ -14,6 +14,7 @@ from keys import API_TOKEN, SAD_PIC_FILE_ID, HELLO_PIC_FILE_ID, TEST_FILE_PATH, 
 bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
+print("bot started")
 
 class Form(StatesGroup):
     waiting_for_voltage = State()
