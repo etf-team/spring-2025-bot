@@ -229,50 +229,32 @@ async def manual_input_prompt(callback: CallbackQuery):
 
     await callback.answer()
 
+
 @dp.callback_query(F.data == "send_test_file")
-async def send_test_file(callback: CallbackQuery):
-    try:
-        await callback.message.edit_media(
-            media=InputMediaDocument(
-                media=types.FSInputFile(TEST_FILE_PATH),
-                caption="Вот пример тестового файла, который я сейчас отправлю на сервер"
-            )
-        )
-    except Exception as e:
-        await callback.message.answer_photo(SAD_PIC_FILE_ID, caption=f"Ошибка при отправке файла пользователю: {e}")
-        await callback.answer()
-        return
-
-    await asyncio.sleep(1)
-    await bot.send_chat_action(chat_id=callback.message.chat.id, action="typing")
-    processing_msg = await callback.message.answer("Отправляю тестовый файл и жду ответа сервера...")
-
-    url = "https://etf-team.ru/api/volumes-info?return_resolved=true"
+async def send_test_file(callback: CallbackQuery, state: FSMContext):
     try:
         with open(TEST_FILE_PATH, "rb") as f:
             file_data = f.read()
-        async with aiohttp.ClientSession() as session:
-            form = aiohttp.FormData()
-            form.add_field(
-                name='payload',
-                value=file_data,
-                filename="test_file.xlsx",
-                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            )
-            async with session.post(url, data=form) as response:
-                if response.status == 200:
-                    result = await response.text()
-                    await callback.message.answer(f"Ответ сервера на тестовый файл:\n{result}")
-                else:
-                    bad = (
-                        f"Что-то пошло не так! :( \n\nНаш администратор уже уведомлен об ошибке и мы ее обязательно изучим! "
-                        f"\nПопробуйте ввести данные ещё раз. \nКод ошибки: {response.status}")
-                    await callback.message.answer_photo(SAD_PIC_FILE_ID, caption=bad)
+        await state.update_data(file_data=file_data, filename="test_file.xlsx")
+
+        await bot.send_document(
+            chat_id=callback.message.chat.id,
+            document=types.FSInputFile(TEST_FILE_PATH),
+            caption="Вот пример тестового файла, который я сейчас отправлю на сервер"
+        )
+
+        await bot.send_message(
+            chat_id=callback.message.chat.id,
+            text="Какое у вас напряжение?",
+            reply_markup=voltage_keyboard()
+        )
+        await state.set_state(Form.waiting_for_voltage)
     except Exception as e:
-        await callback.message.answer_photo(SAD_PIC_FILE_ID, caption=f"Ошибка при отправке файла: {e}")
-    finally:
-        await processing_msg.delete()
-        await callback.answer()
+        await callback.message.answer_photo(
+            SAD_PIC_FILE_ID,
+            caption=f"Ошибка при отправке файла пользователю: {e}"
+        )
+    await callback.answer()
 
 async def reminder():
     while True:
