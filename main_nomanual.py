@@ -5,8 +5,9 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQu
 from aiogram.types import InputMediaDocument
 import aiohttp
 import asyncio
+import datetime
 
-from db import init_db, add_user
+from db import init_db, add_user, get_all_users
 from keys import API_TOKEN, SAD_PIC_FILE_ID, HELLO_PIC_FILE_ID, TEST_FILE_PATH, HA_PIC_FILE_ID
 
 bot = Bot(token=API_TOKEN)
@@ -107,10 +108,8 @@ async def send_test_file(callback: CallbackQuery):
         await callback.answer()
         return
 
-    # Шаг 2: Подождать 1 секунду
     await asyncio.sleep(1)
 
-    # Шаг 3: Отправляем сообщение о том, что начинается отправка на сервер
     await bot.send_chat_action(chat_id=callback.message.chat.id, action="typing")
     processing_msg = await callback.message.answer("Отправляю тестовый файл и жду ответа сервера...")
 
@@ -134,7 +133,9 @@ async def send_test_file(callback: CallbackQuery):
                     result = await response.text()
                     await callback.message.answer(f"Ответ сервера на тестовый файл:\n{result}")
                 else:
-                    bad = (f"Что-то пошло не так! :( \nКод ошибки: {response.status}")
+                    bad = (
+                        f"Что-то пошло не так! :( \n\nНаш администратор уже уведомлен об ошибке и мы ее обязательно изучим! "
+                        f"\nПопробуйте ввести данные ещё раз. \nКод ошибки: {response.status}")
                     await callback.message.answer_photo(SAD_PIC_FILE_ID, caption=bad)
     except Exception as e:
         await callback.message.answer_photo(SAD_PIC_FILE_ID, caption=f"Ошибка при отправке файла: {e}")
@@ -142,11 +143,25 @@ async def send_test_file(callback: CallbackQuery):
         await processing_msg.delete()
         await callback.answer()
 
-
+async def reminder():
+    while True:
+        now = datetime.datetime.now()
+        if now.day == 15:
+            user_ids = await get_all_users()
+            for user_id in user_ids:
+                try:
+                    await bot.send_message(
+                        chat_id=user_id,
+                        text=" Доброго времени суток! \nНапоминаем, что необходимо обновить данные с счетчиков для получения актуальных тарифов. Обновите пожалуйста информацию по счетчикам"
+                    )
+                except Exception as e:
+                    print(f"error to send message {user_id}")
+        await asyncio.sleep(48 * 60 * 60)
 
 async def main():
     await init_db()
     await dp.start_polling(bot)
+    asyncio.create_task(reminder())
 
 if __name__ == '__main__':
     asyncio.run(main())
