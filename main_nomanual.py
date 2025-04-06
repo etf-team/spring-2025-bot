@@ -90,7 +90,7 @@ async def handle_excel(message: types.Message, state: FSMContext):
 
     await state.update_data(file_data=file_data, filename=document.file_name)
 
-    await message.answer("Какое у вас напряжение?", reply_markup=voltage_keyboard())
+    await message.answer("<b>Какое у вас напряжение?</b>", reply_markup=voltage_keyboard(), parse_mode="HTML")
     await state.set_state(Form.waiting_for_voltage)
     await processing_msg.delete()
 
@@ -99,7 +99,7 @@ async def process_voltage(callback: CallbackQuery, state: FSMContext):
     voltage = callback.data
     await state.update_data(voltage_category=voltage)
 
-    await callback.message.edit_text("Какой договор вы заключаете?", reply_markup=contract_keyboard())
+    await callback.message.edit_text("<b>Какой договор вы заключаете?</b>", reply_markup=contract_keyboard(), parse_mode="HTML")
     await state.set_state(Form.waiting_for_contract)
     await callback.answer()
 
@@ -108,7 +108,7 @@ async def process_contract(callback: CallbackQuery, state: FSMContext):
     contract_data = callback.data
     contract = True if contract_data == "contract_true" else False
     await state.update_data(contract_type=contract)
-    await callback.message.edit_text("Какое максимальное напряжение? Введите числовое значение.")
+    await callback.message.edit_text("<b>Какое максимальное напряжение?</b> \n\n<em>Введите численное значение в кВт/ч</em>", parse_mode="HTML")
     await state.set_state(Form.waiting_for_max_voltage)
     await callback.answer()
 
@@ -118,7 +118,7 @@ async def process_max_voltage(message: types.Message, state: FSMContext):
     try:
         max_voltage = int(float(message.text))
     except ValueError:
-        await message.answer("Введите корректное числовое значение (целое число).")
+        await message.answer("Введите только численное значение в кВт/ч")
         return
 
     await state.update_data(max_voltage=max_voltage)
@@ -240,7 +240,7 @@ async def send_test_file(callback: CallbackQuery, state: FSMContext):
         await bot.send_document(
             chat_id=callback.message.chat.id,
             document=types.FSInputFile(TEST_FILE_PATH),
-            caption="Вот пример тестового файла, который я сейчас отправлю на сервер"
+            caption="Вот пример тестового файла, который я отправлю на сервер"
         )
 
         await bot.send_message(
