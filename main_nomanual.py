@@ -1,8 +1,9 @@
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from aiogram.types import InputMediaDocument
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaDocument
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
 import aiohttp
 import asyncio
 import datetime
@@ -14,6 +15,11 @@ bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
+class Form(StatesGroup):
+    waiting_for_voltage = State()
+    waiting_for_contract = State()
+    waiting_for_max_voltage = State()
+
 def manual_input_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="У меня нет файла", callback_data="manual_input")]
@@ -22,6 +28,27 @@ def manual_input_keyboard():
 def confirm_test_file_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Да!", callback_data="send_test_file")]
+    ])
+
+def voltage_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="ВН", callback_data="BH"),
+            InlineKeyboardButton(text="СН1", callback_data="CH1")
+        ],
+        [
+            InlineKeyboardButton(text="СН11", callback_data="CH11"),
+            InlineKeyboardButton(text="НН", callback_data="HH")
+        ]
+    ])
+
+
+def contract_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="Купли-продажи", callback_data="contract_false"),
+            InlineKeyboardButton(text="Энергоснабжения", callback_data="contract_true")
+        ]
     ])
 
 @dp.message(Command("start"))
@@ -48,7 +75,7 @@ async def start(message: types.Message):
             print(f"Не удалось закрепить сообщение: {e}")
 
 @dp.message(lambda msg: msg.document is not None)
-async def handle_excel(message: types.Message):
+async def handle_excel(message: types.Message, state: FSMContext):
     document = message.document
 
     if not document.file_name.lower().endswith(".xlsx"):
@@ -60,32 +87,83 @@ async def handle_excel(message: types.Message):
     file = await bot.download(document.file_id)
     file_data = file.read()
 
-    url = "https://etf-team.ru/api/volumes-info?return_resolved=true"
 
-    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+    await state.update_data(file_data=file_data, filename=document.file_name)
+
+    await message.answer("Какое у вас напряжение?", reply_markup=voltage_keyboard())
+    await state.set_state(Form.waiting_for_voltage)
+    await processing_msg.delete()
+
+@dp.callback_query(Form.waiting_for_voltage, F.data.in_(["BH", "СН1", "СН11", "НН"]))
+async def process_voltage(callback: CallbackQuery, state: FSMContext):
+    voltage = callback.data
+    await state.update_data(voltage_category=voltage)
+
+    await callback.message.edit_text("Какой договор вы заключаете?", reply_markup=contract_keyboard())
+    await state.set_state(Form.waiting_for_contract)
+    await callback.answer()
+
+@dp.callback_query(Form.waiting_for_contract, F.data.in_(["contract_false", "contract_true"]))
+async def process_contract(callback: CallbackQuery, state: FSMContext):
+    contract_data = callback.data
+    contract = True if contract_data == "contract_true" else False
+    await state.update_data(contract_type=contract)
+    await callback.message.edit_text("Какое максимальное напряжение? Введите числовое значение.")
+    await state.set_state(Form.waiting_for_max_voltage)
+    await callback.answer()
+
+
+@dp.message(Form.waiting_for_max_voltage)
+async def process_max_voltage(message: types.Message, state: FSMContext):
+    try:
+        max_voltage = int(float(message.text))
+    except ValueError:
+        await message.answer("Введите корректное числовое значение (целое число).")
+        return
+
+    await state.update_data(max_voltage=max_voltage)
+
+    data = await state.get_data()
+    file_data = data["file_data"]
+    filename = data["filename"]
+    voltage_category = data["voltage_category"]
+    contract_type = data["contract_type"]
+
+    contract_str = "true" if contract_type else "false"
+
+    url = (
+        f"https://etf-team.ru/api/clients/cases?"
+        f"is_transmission_included={contract_str}&"
+        f"max_power_capacity_kwt={max_voltage}&"
+        f"voltage_category={voltage_category}"
+    )
+
+    processing_msg = await message.answer("Отправляю данные на сервер...")
+
     async with aiohttp.ClientSession() as session:
         form = aiohttp.FormData()
         form.add_field(
             name='payload',
             value=file_data,
-            filename=document.file_name,
+            filename=filename,
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
+        headers = {"accept": "application/json"}
 
-        try:
-            async with session.post(url, data=form) as response:
-                if response.status == 200:
-                    result = await response.text()
-                    await message.answer(f"Ответ:\n{result}")
-                else:
-                    bad = (f"Что-то пошло не так! :( \nНаш администратор уже уведомлен об ошибке и мы ее обязательно изучим! "
-                           f"\nПопробуйте ввести данные ещё раз. \nКод ошибки: {response.status}")
-                    await message.answer_photo(SAD_PIC_FILE_ID, caption=bad)
-        except Exception as e:
-            bad = f"Ошибка при отправке файла: {e}"
-            await message.answer_photo(SAD_PIC_FILE_ID, caption=bad)
-        finally:
-            await processing_msg.delete()
+        async with session.post(url, data=form, headers=headers) as resp:
+            text = await resp.text()
+            print(resp.status)
+            if resp.status == 200 or 201:
+                await message.answer(f"✅ Успех! Ответ сервера:\n{text}")
+            elif resp.status == 500 or 400:
+                await message.answer_photo(
+                    SAD_PIC_FILE_ID,
+                    caption=(f"Ошибка {resp.status} при отправке:\n{text}")
+                )
+
+    await processing_msg.delete()
+    await state.clear()
+
 
 @dp.callback_query(F.data == "manual_input")
 async def manual_input_prompt(callback: CallbackQuery):
@@ -109,16 +187,13 @@ async def send_test_file(callback: CallbackQuery):
         return
 
     await asyncio.sleep(1)
-
     await bot.send_chat_action(chat_id=callback.message.chat.id, action="typing")
     processing_msg = await callback.message.answer("Отправляю тестовый файл и жду ответа сервера...")
 
     url = "https://etf-team.ru/api/volumes-info?return_resolved=true"
-
     try:
         with open(TEST_FILE_PATH, "rb") as f:
             file_data = f.read()
-
         async with aiohttp.ClientSession() as session:
             form = aiohttp.FormData()
             form.add_field(
@@ -127,7 +202,6 @@ async def send_test_file(callback: CallbackQuery):
                 filename="test_file.xlsx",
                 content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             )
-
             async with session.post(url, data=form) as response:
                 if response.status == 200:
                     result = await response.text()
@@ -152,16 +226,18 @@ async def reminder():
                 try:
                     await bot.send_message(
                         chat_id=user_id,
-                        text=" Доброго времени суток! \nНапоминаем, что необходимо обновить данные с счетчиков для получения актуальных тарифов. Обновите пожалуйста информацию по счетчикам"
+                        text="Доброго времени суток!\nНапоминаем, что необходимо обновить данные с счетчиков для получения актуальных тарифов. Обновите пожалуйста информацию по счетчикам."
                     )
                 except Exception as e:
                     print(f"error to send message {user_id}")
         await asyncio.sleep(48 * 60 * 60)
 
+
 async def main():
     await init_db()
-    await dp.start_polling(bot)
+
     asyncio.create_task(reminder())
+    await dp.start_polling(bot)
 
 if __name__ == '__main__':
     asyncio.run(main())
