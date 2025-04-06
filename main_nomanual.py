@@ -9,7 +9,7 @@ import asyncio
 import datetime
 
 from db import init_db, add_user, get_all_users
-from keys import API_TOKEN, SAD_PIC_FILE_ID, HELLO_PIC_FILE_ID, TEST_FILE_PATH, HA_PIC_FILE_ID
+from keys import API_TOKEN, SAD_PIC_FILE_ID, HELLO_PIC_FILE_ID, TEST_FILE_PATH, HA_PIC_FILE_ID, HAHA_PIC_FILE_ID
 
 bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
@@ -94,7 +94,7 @@ async def handle_excel(message: types.Message, state: FSMContext):
     await state.set_state(Form.waiting_for_voltage)
     await processing_msg.delete()
 
-@dp.callback_query(Form.waiting_for_voltage, F.data.in_(["BH", "СН1", "СН11", "НН"]))
+@dp.callback_query(Form.waiting_for_voltage, F.data.in_(["BH", "CH1", "CH11", "HH"]))
 async def process_voltage(callback: CallbackQuery, state: FSMContext):
     voltage = callback.data
     await state.update_data(voltage_category=voltage)
@@ -153,13 +153,56 @@ async def process_max_voltage(message: types.Message, state: FSMContext):
         async with session.post(url, data=form, headers=headers) as resp:
             text = await resp.text()
             print(resp.status)
+            text = await resp.text()
             if resp.status == 200 or 201:
-                await message.answer(f"✅ Успех! Ответ сервера:\n{text}")
-            elif resp.status == 500 or 400:
-                await message.answer_photo(
-                    SAD_PIC_FILE_ID,
-                    caption=(f"Ошибка {resp.status} при отправке:\n{text}")
-                )
+                try:
+                    data = await resp.json()
+                    categories = data.get("categories", [])
+
+                    result_map = {
+                        1: "ЦК 1 — В разработке",
+                        2: "ЦК 2 — В разработке",
+                        3: "ЦК 3 — В разработке",
+                        4: "ЦК 4 — В разработке",
+                        5: "ЦК 5 — В разработке",
+                        6: "ЦК 6 — В разработке"
+                    }
+
+                    for cat in categories:
+                        cat_type = cat.get("category_type", "").upper()
+                        total_cost = float(cat.get("total_cost", 0)) / 1000
+                        applicable = cat["applicability"]["is_applicable_power_capacity"]
+                        recommendation = int(cat["applicability"]["power_capacity_change_recommendation"])
+
+                        note = "" if applicable else " *"
+                        line = f"ЦК { {'FIRST': 1, 'SECOND': 2, 'THIRD': 3, 'FORTH': 4}.get(cat_type, '?')} — {total_cost:.0f} т.р. / мес{note}"
+                        if cat_type == "FIRST" and not applicable:
+                            line += (
+                                "\n\n* Чтобы воспользоваться ЦК1, "
+                                f"уменьшите максимальную мощность на {recommendation}кВт, "
+                                "обратившись в сетевую организацию."
+                            )
+
+                        num = {"FIRST": 1, "SECOND": 2, "THIRD": 3, "FORTH": 4}.get(cat_type)
+                        if num:
+                            result_map[num] = line
+
+                    final = (
+                        "🔎 <b>Основываясь на вашем месячном потреблении, мы вычислили будущие расходы по нескольким ценовым категориям:</b>\n\n"
+                        f"{result_map[1]}\n"
+                        f"{result_map[2]}\n"
+                        f"{result_map[3]}\n"
+                        f"{result_map[4]}\n"
+                        f"{result_map[5]}\n"
+                        f"{result_map[6]}"
+                    )
+
+                    await message.answer_photo(HAHA_PIC_FILE_ID, caption=final, parse_mode="HTML")
+                except Exception as e:
+                    bad = (
+                        f"Что-то пошло не так! :( \n\nНаш администратор уже уведомлен об ошибке и мы ее обязательно изучим! "
+                        f"\nПопробуйте ввести данные ещё раз. \nОтвет: {text}")
+                    await message.answer_photo(SAD_PIC_FILE_ID, caption=bad)
 
     await processing_msg.delete()
     await state.clear()
