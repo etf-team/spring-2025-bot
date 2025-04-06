@@ -26,6 +26,7 @@ async def add_user(user_id: int, username: str) -> bool:
             return True
 
 async def get_all_users():
-    async with db.acquire() as conn:
-        result = await conn.fetch("SELECT user_id FROM users")
-        return [record["user_id"] for record in result]
+    async with aiosqlite.connect("users.db") as db:
+        async with db.execute("SELECT user_id FROM users") as cursor:
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]
